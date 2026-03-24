@@ -66,7 +66,7 @@ export default function AdminPage() {
   };
 
   const fetchProducts = async () => {
-    try { const r = await fetch('/api/products'); setProducts(await r.json()); } catch {}
+    try { const r = await fetch('/api/products?limit=100'); const d = await r.json(); setProducts(d.products || d); } catch {}
   };
   const fetchOrders = async () => {
     try { const r = await fetch('/api/admin/orders'); if (r.ok) setOrders(await r.json()); } catch {}

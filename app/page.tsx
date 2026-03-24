@@ -127,7 +127,7 @@ export default function Home() {
   const [ratings, setRatings] = useState<Record<number, { avg: number; count: number }>>({});
 
   useEffect(() => {
-    fetch('/api/products').then(r => r.json()).then(setProducts).catch(() => {});
+    fetch('/api/products?limit=50').then(r => r.json()).then(data => setProducts(data.products || data)).catch(() => {});
     fetch('/api/reviews').then(r => r.json()).then((data: any[]) => {
       const map: Record<number, { avg: number; count: number }> = {};
       data.forEach(d => { map[d.product_id] = { avg: parseFloat(d.avg_rating), count: parseInt(d.count) }; });
