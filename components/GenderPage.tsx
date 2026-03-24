@@ -1,38 +1,71 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useCartStore } from '@/store/cartStore';
 
-interface Product { id: number; name: string; price: number; category: string; gender: string; image_url: string; stock: number; design_no?: string; colors?: string[]; is_new?: boolean; is_bestseller?: boolean; }
+interface Product {
+  id: number; name: string; price: number; category: string; gender: string;
+  image_url: string; stock: number; design_no?: string; colors?: string[];
+  is_new?: boolean; is_bestseller?: boolean;
+}
+
+interface Pagination {
+  total: number; page: number; limit: number; totalPages: number; hasMore: boolean;
+}
+
 interface Props { gender?: string; category?: string; title: string; subtitle?: string; }
 
 export default function GenderPage({ gender, category, title, subtitle }: Props) {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [sortBy, setSortBy] = useState('newest');
-  const [filter, setFilter] = useState('all');
+  const [products, setProducts]       = useState<Product[]>([]);
+  const [pagination, setPagination]   = useState<Pagination | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [sortBy, setSortBy]           = useState('newest');
+  const [filter, setFilter]           = useState('all');
+  const [page, setPage]               = useState(1);
   const addItem = useCartStore(s => s.addItem);
 
-  useEffect(() => {
-    fetch('/api/products').then(r => r.json()).then(data => {
-      let filtered = data;
-      if (gender) filtered = data.filter((p: Product) => (p.gender || 'Kids').toLowerCase() === gender.toLowerCase() || (p.gender || 'Kids').toLowerCase() === 'kids');
-      if (category) filtered = data.filter((p: Product) => p.category === category);
-      setProducts(filtered);
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, [gender, category]);
+  const buildUrl = useCallback((pageNum: number) => {
+    const params = new URLSearchParams();
+    params.set('page', String(pageNum));
+    params.set('limit', '20');
+    if (gender)   params.set('gender', gender);
+    if (category) params.set('category', category);
+    if (filter !== 'all') params.set('filter', filter);
+    if (sortBy !== 'newest') params.set('sortBy', sortBy);
+    return `/api/products?${params.toString()}`;
+  }, [gender, category, filter, sortBy]);
 
-  const sorted = [...products].filter(p => {
-    if (filter === 'new') return p.is_new;
-    if (filter === 'bestseller') return p.is_bestseller;
-    return true;
-  }).sort((a, b) => {
-    if (sortBy === 'price-asc') return a.price - b.price;
-    if (sortBy === 'price-desc') return b.price - a.price;
-    return b.id - a.id;
-  });
+  // Reset and fetch on filter/sort change
+  useEffect(() => {
+    setLoading(true);
+    setPage(1);
+    setProducts([]);
+    fetch(buildUrl(1))
+      .then(r => r.json())
+      .then(data => {
+        setProducts(data.products || []);
+        setPagination(data.pagination || null);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [gender, category, filter, sortBy, buildUrl]);
+
+  const loadMore = () => {
+    if (!pagination?.hasMore || loadingMore) return;
+    const nextPage = page + 1;
+    setLoadingMore(true);
+    fetch(buildUrl(nextPage))
+      .then(r => r.json())
+      .then(data => {
+        setProducts(prev => [...prev, ...(data.products || [])]);
+        setPagination(data.pagination || null);
+        setPage(nextPage);
+        setLoadingMore(false);
+      })
+      .catch(() => setLoadingMore(false));
+  };
 
   return (
     <div style={{ minHeight: '100vh', fontFamily: "'Nunito', sans-serif" }}>
@@ -60,7 +93,9 @@ export default function GenderPage({ gender, category, title, subtitle }: Props)
             ))}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 13, color: '#888', fontWeight: 700 }}>{sorted.length} items</span>
+            <span style={{ fontSize: 13, color: '#888', fontWeight: 700 }}>
+              {pagination ? `${products.length} of ${pagination.total} items` : `${products.length} items`}
+            </span>
             <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ padding: '8px 14px', borderRadius: 50, border: '1.5px solid rgba(233,30,140,0.2)', background: 'white', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "'Nunito', sans-serif", color: '#333' }}>
               <option value="newest">Newest First</option>
               <option value="price-asc">Price: Low to High</option>
@@ -73,7 +108,7 @@ export default function GenderPage({ gender, category, title, subtitle }: Props)
           <div style={{ textAlign: 'center', padding: 80, color: '#9b59b6', fontSize: 16, fontWeight: 700 }}>🌸 Loading magical outfits...</div>
         )}
 
-        {!loading && sorted.length === 0 && (
+        {!loading && products.length === 0 && (
           <div style={{ textAlign: 'center', padding: 80 }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>✨</div>
             <div style={{ fontSize: 16, color: '#888', fontWeight: 700, marginBottom: 16 }}>No products found. Add products from the admin panel.</div>
@@ -82,8 +117,28 @@ export default function GenderPage({ gender, category, title, subtitle }: Props)
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(195px, 44vw), 1fr))', gap: 'clamp(12px,2vw,20px)' }}>
-          {sorted.map(p => <ProductCardGrid key={p.id} product={p} addItem={addItem} />)}
+          {products.map(p => <ProductCardGrid key={p.id} product={p} addItem={addItem} />)}
         </div>
+
+        {/* Load More Button */}
+        {pagination?.hasMore && (
+          <div style={{ textAlign: 'center', marginTop: 48 }}>
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              style={{
+                background: loadingMore ? '#ccc' : 'linear-gradient(135deg,#e91e8c,#9b59b6)',
+                color: 'white', border: 'none', borderRadius: 50,
+                padding: '14px 40px', fontSize: 14, fontWeight: 800,
+                cursor: loadingMore ? 'not-allowed' : 'pointer',
+                fontFamily: "'Nunito', sans-serif",
+                boxShadow: loadingMore ? 'none' : '0 6px 20px rgba(233,30,140,0.3)',
+              }}
+            >
+              {loadingMore ? 'Loading...' : `Load More (${pagination.total - products.length} remaining)`}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -91,7 +146,7 @@ export default function GenderPage({ gender, category, title, subtitle }: Props)
 
 function ProductCardGrid({ product, addItem }: { product: Product; addItem: any }) {
   const [wishlist, setWishlist] = useState(false);
-  const [added, setAdded] = useState(false);
+  const [added, setAdded]       = useState(false);
   const quickAdd = (e: React.MouseEvent) => {
     e.preventDefault();
     addItem(product, 1, product.colors?.[0] || 'Default');
